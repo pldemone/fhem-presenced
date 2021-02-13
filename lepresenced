@@ -169,7 +169,7 @@ sub parse_log_level {
 sub humanize_thread_command {
   my ($command) = @_;
   return  ( $command eq $THREAD_COMMAND_RUN     ? 'THREAD_COMMAND_RUN'
-          : $command eq $THREAD_COMMAND_STOP    ? 'THREAD_COMMAND_STOP'    
+          : $command eq $THREAD_COMMAND_STOP    ? 'THREAD_COMMAND_STOP'
           : $command eq $THREAD_COMMAND_RESTART ? 'THREAD_COMMAND_RESTART'
           : '?'
           );
@@ -186,7 +186,7 @@ sub parse_options {
   my $legacy_mode                 = 0;
   my $rssi_threshold              = $DEFAULT_RSSI_THRESHOLD;
   my $battery_interval_h          = $DEFAULT_BATTERY_INTERVAL_H;
-  
+
   GetOptions(
     'bluetoothdevice|device|b=s'  => \$device,
     'daemon|daemonize|d!'         => \$daemonize,
@@ -199,15 +199,15 @@ sub parse_options {
     'rssithreshold=i'             => \$rssi_threshold,
     'batteryinterval=i'           => \$battery_interval_h,
   ) or usage_exit();
-  
+
   usage_exit() if ($rssi_threshold < 5);
   usage_exit() if ($battery_interval_h < 1);
-  
+
   $listen_address =~ m/^\d+\.\d+\.\d+\.\d+$/ or usage_exit();
   $log_target =~ m/^(syslog|stdout)$/ or usage_exit();
   $log_level = parse_log_level($log_level);
   $daemonize = 0 if ($debug);
-  
+
   return ($device, $daemonize, $listen_address, $listen_port, $log_level, $log_target, $debug, $legacy_mode, $rssi_threshold, $battery_interval_h);
 }
 
@@ -221,7 +221,7 @@ sub sanity_check {
   binmode ($me);
   syslogw(LOG_INFO, "md5 digest of '%s' is: '%s'.", $0, Digest::MD5->new->addfile($me)->hexdigest());
   close($me);
-  
+
   # check if necessary external binaries exist
   my $ok = 1;
   foreach my $binary ($legacy_mode ? qw/hciconfig hcitool gatttool/ : qw/hciconfig hcitool gatttool hcidump/) {
@@ -241,6 +241,8 @@ sub sanity_check {
 sub update_device {
   my ($mac, $name, $rssi, $address_type) = @_;
   $mac = lc($mac);
+  $address_type = "" if !$address_type;
+
   {
     lock(%devices);
     unless (exists $devices{$mac}) {
@@ -299,7 +301,7 @@ sub bluetooth_scan_thread {
       }
       kill($KILL_SIGNAL, $pid);
       close($hcitool);
-      syslogw(LOG_WARNING, 
+      syslogw(LOG_WARNING,
           $thread_commands{bluetooth_scan_thread} == $THREAD_COMMAND_STOP     ? "hcitool was stopped."
         : $thread_commands{bluetooth_scan_thread} == $THREAD_COMMAND_RESTART  ? "restarting hcitool..."
         : "hcitool exited, retrying..."
@@ -326,7 +328,7 @@ sub bluetooth_dump_thread {
       my $current_rssi = '';
       my $current_name = '';
       my $current_address_type = '';
-      
+
       while (<$hcidump>) {
         #syslogw(LOG_DEBUG, "Thread command: '%s'.", $thread_commands{bluetooth_dump_thread}) if ($thread_commands{bluetooth_dump_thread} != $THREAD_COMMAND_RUN);
         last() if ($thread_commands{bluetooth_dump_thread} != $THREAD_COMMAND_RUN);
@@ -355,7 +357,7 @@ sub bluetooth_dump_thread {
             $mean_rssi = int($mean_rssi / scalar(@{$rssitable{$current_mac}}));
             #printf("DEBUG: mac: %s, rssi count: %i, rssis: %s, mean: %s\n", $current_mac, scalar(@{$rssitable{$current_mac}}), join(',', @{$rssitable{$current_mac}}), $mean_rssi);
             update_device($current_mac, $current_name, $mean_rssi, $current_address_type);
-          } 
+          }
           $current_mac = '';
           $current_rssi = '';
           $current_name = '';
@@ -395,7 +397,7 @@ sub bluetooth_dump_thread {
       }
       kill($KILL_SIGNAL, $pid);
       close($hcidump);
-      syslogw(LOG_WARNING, 
+      syslogw(LOG_WARNING,
           $thread_commands{bluetooth_dump_thread} == $THREAD_COMMAND_STOP     ? "hcidump was stopped."
         : $thread_commands{bluetooth_dump_thread} == $THREAD_COMMAND_RESTART  ? "restarting hcidump..."
         : "hcidump exited, retrying..."
@@ -510,7 +512,7 @@ sub get_battery_level {
   my ($device, $mac) = @_;
   my $address_type = $devices{$mac}{'address_type'} // 'public';
   open(my $gatttool, "-|", "gatttool -i $device -b $mac -t $address_type --char-read --uuid=$BATTERY_LEVEL_CHARACTERISTIC_UUID 2>&1") || die('Error executing gatttool!');
-  
+
   my $result = 'unknown';
   while (<$gatttool>) {
     chomp($_);
@@ -528,7 +530,7 @@ sub get_battery_level {
       $result = 'unknown (timeout)';
     }
   }
-  close($gatttool);  
+  close($gatttool);
   return($result);
 }
 sub battery_task {
@@ -537,14 +539,14 @@ sub battery_task {
   foreach my $client (@clients) {
     push(@present_clients, $client) if (is_present($client));
   }
-  
+
   if (scalar(@present_clients) > 0) {
     syslogw(LOG_INFO, "Starting battery task, %i reachable device(s) to query...", scalar(@present_clients));
 
     set_thread_command('bluetooth_dump_thread', $THREAD_COMMAND_STOP);
     set_thread_command('bluetooth_scan_thread', $THREAD_COMMAND_STOP);
     sleep($BATTERY_TASK_SETTLE_PRE_SLEEP);
-    
+
     foreach my $client (@present_clients) {
       my $battery_level = get_battery_level($device, $client->{'mac'});
       syslogw(LOG_INFO, "Battery level for mac %s is %s.", $client->{'mac'}, $battery_level);
@@ -554,14 +556,14 @@ sub battery_task {
         $devices{$client->{'mac'}}{'battery_level'} = $battery_level;
         $devices{$client->{'mac'}}{'battery_time'} = time();
         # allow present clients a full interval to recover after scan stop
-        $client->{'next_check'} = time() + $client->{'interval'}; 
+        $client->{'next_check'} = time() + $client->{'interval'};
       }
     }
-    
+
     sleep($BATTERY_TASK_SETTLE_POST_SLEEP);
     set_thread_command('bluetooth_scan_thread', $THREAD_COMMAND_RUN);
     set_thread_command('bluetooth_dump_thread', $THREAD_COMMAND_RUN);
-    
+
     syslogw(LOG_INFO, "Battery task completed.");
   } else {
     syslogw(LOG_INFO, "Skipping battery task, no devices to query.");
@@ -573,7 +575,7 @@ sub is_present {
   my ($client) = @_;
   return(
     defined($devices{$client->{'mac'}}) &&
-    time()-$devices{$client->{'mac'}}{timestamp} <= $client->{'interval'} && 
+    time()-$devices{$client->{'mac'}}{timestamp} <= $client->{'interval'} &&
     defined($devices{$client->{'mac'}}{prevtimestamp}) && time()-$devices{$client->{'mac'}}{prevtimestamp} <= $client->{'interval'}
   );
 }
@@ -656,7 +658,7 @@ for(;;) {
       }
     }
   }
-   
+
   # Check for due client updates, cleanup, stats
   # For performance reasons, a maximum of one task is performed per loop
   if (my @due_clients = grep { time() >= $_->{'next_check'} } @clients) {
