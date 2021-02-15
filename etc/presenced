@@ -1,0 +1,4 @@
+# presenced startup defaults:
+
+# The TCP port presenced will listen for incoming connections (default: 5111)
+PORT=5111
