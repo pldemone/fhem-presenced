@@ -214,7 +214,13 @@ sub sanity_check {
     }
   }
 
+  if (!$ok && !$debug && $log_target eq 'syslog') {
+    print "ERROR: Exiting due to missing binaries. For more details use option --debug\n";
+    print "";
+  }
+
   error_exit(4, "ERROR: Exiting due to missing binaries.") if (!$ok);
+
   return();
 }
 
