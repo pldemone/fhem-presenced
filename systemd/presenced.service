@@ -1,0 +1,13 @@
+[Unit]
+Description=presence daemon to check device presence via bluetooth for FHEM
+Documentation=http://commandref.fhem.de/#PRESENCE https://wiki.fhem.de/wiki/PRESENCE#.C3.9Cberwachung_durch_verteilte_Agenten_in_der_Wohnung_.28presenced.2Flepresenced.2Fcollectord.29
+Wants=network.target
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/presenced -v -n -p '$PORT' 
+EnvironmentFile=-/etc/presenced/presenced
+PIDFile=/var/run/presenced.pid
+
+[Install]
+WantedBy=multi-user.target
