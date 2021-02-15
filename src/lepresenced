@@ -130,22 +130,33 @@ sub error_exit {
   exit ($exit_code);
 }
 
+sub usage_version {
+  printf("%s %s\n", $ME, $VERSION);
+  closelog();
+  exit(1);
+}
+
 sub usage_exit {
-  print("usage:\n");
-  printf("\t%s --bluetoothdevice <bluetooth device> --listenaddress <listen address> --listenport <listen port> --loglevel <log level> --logtarget <log target> --daemon\n", $ME);
-  printf("\t%s -b <bluetooth device> -a <listen address> -p <listen port> -l <log level> -t <log target> -d\n", $ME);
-  print("valid log levels:\n");
-  print("\tLOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG. Default: LOG_INFO\n");
-  print("valid log targets:\n");
-  print("\tsyslog, stdout. Default: syslog\n");
-  print("optional arguments:\n");
-  print("\t--debug - print extensive debug output to stdout (mutually exclusive with --daemon).\n");
-  print("\t--legacymode - legacy mode without rssi detection. Use if you do not have hcidump installed.\n");
-  printf("\t--rssithreshold - rssi deviation to trigger an update. Minimum value: 5, default: %s.\n", $DEFAULT_RSSI_THRESHOLD);
-  printf("\t--batteryinterval - interval for battery checks in hours, default: %s.\n", $DEFAULT_BATTERY_INTERVAL_H);
-  print("examples:\n");
-  printf("\t%s --bluetoothdevice hci0 --listenaddress 127.0.0.1 --listenport 5333 --daemon\n", $ME);
-  printf("\t%s --loglevel LOG_DEBUG --daemon\n", $ME);
+  print("Usage:\n");
+  printf("\t %s [options]\n", $ME);
+  print("Options:\n");
+  print("  -a, --listenaddress   Address on which the server listens for connections\n");
+  printf("      --batteryinterval Interval for battery checks in hours (Default: %s)\n", $DEFAULT_BATTERY_INTERVAL_H);
+  print("  -b, --bluetoothdevice HCI device used for scanning\n");
+  print("  -d, --daemon          Run as a daemon in background\n");
+  print("      --debug           Enable debug mode\n");
+  print("  -h  --help            Display this help\n");
+  print("      --legacymode      Legacy mode without rssi detection. Use if you do not have hcidump installed.\n");
+  print("  -l, --loglevel        Log level (Default: LOG_INFO)\n");
+  print("                        LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG\n");
+  print("  -p, --listenport      Port on which the server listens for connections\n");
+  print("  -t, --logtarget       Log target: syslog, stdout (Default: syslog)\n");
+  printf("      --rssithreshold   RSSI deviation to trigger an update. Minimum value: 5 (Default: %s)\n", $DEFAULT_RSSI_THRESHOLD);
+  print("  -V, --version         Display version\n");
+  print("");
+  print("Examples:\n");
+  printf("  %s -b hci0 -a 127.0.0.1 -p 5333 --daemon\n", $ME);
+  printf("  %s --loglevel LOG_DEBUG --daemon\n", $ME);
   closelog();
   exit(1);
 }
@@ -183,6 +194,8 @@ sub parse_options {
   my $log_target                  = "syslog";
   my $log_level                   = "LOG_INFO";
   my $debug                       = 0;
+  my $help                        = 0;
+  my $version                     = 0;
   my $legacy_mode                 = 0;
   my $rssi_threshold              = $DEFAULT_RSSI_THRESHOLD;
   my $battery_interval_h          = $DEFAULT_BATTERY_INTERVAL_H;
@@ -195,13 +208,17 @@ sub parse_options {
     'loglevel|l=s'                => \$log_level,
     'logtarget|t=s'               => \$log_target,
     'debug!'                      => \$debug,
+    'help|h!'                     => \$help,
+    'version|V!'                  => \$version,
     'legacymode|legacy!'          => \$legacy_mode,
     'rssithreshold=i'             => \$rssi_threshold,
     'batteryinterval=i'           => \$battery_interval_h,
   ) or usage_exit();
 
+  usage_version() if ($version);
   usage_exit() if ($rssi_threshold < 5);
   usage_exit() if ($battery_interval_h < 1);
+  usage_exit() if ($help);
 
   $listen_address =~ m/^\d+\.\d+\.\d+\.\d+$/ or usage_exit();
   $log_target =~ m/^(syslog|stdout)$/ or usage_exit();
