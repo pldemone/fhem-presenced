@@ -4,7 +4,7 @@
 ##############################################################################
 #
 #     presenced
-#     checks for one or multiple bluetooth devices for their presence state 
+#     checks for one or multiple bluetooth devices for their presence state
 #     and report this to the 73_PRESENCE.pm module.
 #
 #     Copyright by Markus Bloch
@@ -87,7 +87,7 @@ if(-e "$opt_P")
     exit 1;
 }
 
-sub print_usage () 
+sub print_usage ()
 {
     print "Usage:\n";
     print "  presenced -d [-p <port>] [-P <filename>] \n";
@@ -100,7 +100,7 @@ sub print_usage ()
     print "  -d, --daemon\n";
     print "     detach from terminal and run as background daemon\n";
     print "  -n, --no-timestamps\n";
-    print "     do not output timestamps in log messages\n"; 
+    print "     do not output timestamps in log messages\n";
     print "  -v, --verbose\n";
     print "     Print detailed log output\n";
     print "  -h, --help\n";
@@ -167,7 +167,7 @@ while(1)
     {
         Log 2, $log_queue->dequeue;
     }
-    
+
     if(@new_handles = $listener->can_read(1))
     {
         foreach my $client (@new_handles)
@@ -175,9 +175,9 @@ while(1)
             if($client == $server)
             {
                 $new_client = $server->accept();
-                
+
                 setsockopt($new_client, SOL_SOCKET, SO_KEEPALIVE, 1); # activate keep-alive
-                
+
                 $listener->add($new_client);
                 Log 1, "new connection from ".$new_client->peerhost().":".$new_client->peerport();
             }
@@ -200,10 +200,10 @@ while(1)
                         $timeout =~ s/\s*//g;
 
                         $write_handle = $client;
-                                          
+
                         if(defined($child_handles{$client}))
                         {
-                            Log 2, "sending new command to thread ".$child_handles{$client}->tid()." for client ".$client->peerhost().":".$client->peerport(); 
+                            Log 2, "sending new command to thread ".$child_handles{$client}->tid()." for client ".$client->peerhost().":".$client->peerport();
                             $queues{$child_handles{$client}->tid()}->enqueue("new|".$address."|".$timeout);
                         }
                         else
@@ -213,9 +213,9 @@ while(1)
 
                             my $new_thread = threads->new(\&doQuery, ($write_handle, $address, $timeout));
                             Log 2, "created thread ".$new_thread->tid()." for processing device $address within $timeout seconds for peer ".$client->peerhost().":".$client->peerport();
-                        
-                            $new_thread->detach();    
-                
+
+                            $new_thread->detach();
+
                             $child_handles{$client} = $new_thread;
                         }
                     }
@@ -236,11 +236,11 @@ while(1)
                     }
                     elsif(lc($buf) =~ /^\s*stop\s*$/)
                     {
-                        Log 2, "received stop command from client ".$client->peerhost().":".$client->peerport(); 
+                        Log 2, "received stop command from client ".$client->peerhost().":".$client->peerport();
 
                         if(defined($child_handles{$client}))
                         {
-                            Log 2, "sending thread ".$child_handles{$client}->tid()." the stop command for client ".$client->peerhost().":".$client->peerport(); 
+                            Log 2, "sending thread ".$child_handles{$client}->tid()." the stop command for client ".$client->peerhost().":".$client->peerport();
                             $queues{$child_handles{$client}->tid()}->enqueue("stop");
                             $client->send("command accepted\n");
                             delete($child_handles{$client});
@@ -252,37 +252,37 @@ while(1)
                     }
                     elsif(lc($buf) =~ /^\s*ping\s*$/)
                     {
-                        Log 2, "received ping command from client ".$client->peerhost().":".$client->peerport(); 
+                        Log 2, "received ping command from client ".$client->peerhost().":".$client->peerport();
                         $client->send("pong\n");
 
                         Log 1, "closed connection from ".$client->peerhost().":".$client->peerport();
                         $listener->remove($client);
-                    
+
                         shutdown($client, 2);
                         close $client;
                         $client = undef;
                     }
                     else
-                    {        
+                    {
                         $client->send("command rejected\n");
-                        Log 1, "received invalid command >>$buf<< from client ".$client->peerhost().":".$client->peerport(); 
-                    }    
+                        Log 1, "received invalid command >>$buf<< from client ".$client->peerhost().":".$client->peerport();
+                    }
                 }
                 else
                 {
                     Log 1, "closed connection from ".$client->peerhost().":".$client->peerport();
                     $listener->remove($client);
-                    
+
                     if(defined($child_handles{$client}))
                     {
-                        Log  2, "killing thread ".$child_handles{$client}->tid()." for client ".$client->peerhost(); 
+                        Log  2, "killing thread ".$child_handles{$client}->tid()." for client ".$client->peerhost();
                         $queues{$child_handles{$client}->tid()}->enqueue("stop");
                         delete($child_handles{$client});
                     }
                     shutdown($client, 2);
                     close $client;
                     $client = undef;
-                    
+
                     Log 1, "closed successfully all threads";
                 }
             }
@@ -292,7 +292,7 @@ while(1)
     if(defined($sig_received))
     {
         Log 0, "caught $sig_received";
-        unlink($opt_P); 
+        unlink($opt_P);
         Log 1, "removed PID-File $opt_P";
         Log 0, "exiting";
         exit;
@@ -342,7 +342,7 @@ sub doQuery($$)
             if(exists($queues{threads->tid()}) and $queues{threads->tid()}->pending)
             {
                 $cmd  = $queues{threads->tid()}->dequeue;
-                Log 2, threads->tid()."|received command: $cmd";        
+                Log 2, threads->tid()."|received command: $cmd";
                 if($cmd eq "now")
                 {
                     $log_queue->enqueue(threads->tid()."|performing an instant test");
@@ -358,43 +358,43 @@ sub doQuery($$)
                 {
                     ($cmd, $address, $timeout) = split("\\|", $cmd);
                     $nextrun = gettimeofday();
-                    
+
                     $log_queue->enqueue(threads->tid()."|new address: $address - new timeout $timeout");
                 }
             }
-            
+
             if($write_handle)
             {
                 if($nextrun <= gettimeofday())
                 {
                     {
                         lock($querylocker);
-                        
+
                         if($querylocker gt (gettimeofday() - 2))
                         {
                             $log_queue->enqueue(threads->tid()."|waiting before hcitool command execution because last command was executed within the last 2 seconds");
                             sleep rand(1) + 1;
                         }
-                        
+
                         $hcitool = qx(which hcitool);
                         chomp $hcitool;
-                        
+
                         if( -x "$hcitool")
                         {
-                            $return = qx(hcitool name $address 2>/dev/null);    
+                            $return = qx(hcitool name $address 2>/dev/null);
                         }
                         else
                         {
                             $write_handle->send("error\n") if(defined($write_handle));
                         }
-                        
+
                         $querylocker = gettimeofday();
                     }
-                
+
                     chomp $return;
-                    
+
                     if(not $return =~ /^\s*$/)
-                    { 
+                    {
                         $write_handle->send("present;$return\n") if(defined($write_handle));
                     }
                     else
@@ -408,7 +408,7 @@ sub doQuery($$)
             sleep 1;
         }
     }
-    
+
     delete($queues{threads->tid()}) if(exists($queues{threads->tid()}));
 }
 
@@ -423,12 +423,12 @@ sub Log($$)
 {
     my ($loglevel, $message) = @_;
     my $thread = 0;
-    
+
     if($message =~ /^\d+\|/)
     {
       ($thread, $message) = split("\\|", $message);
     }
-    
+
     if($loglevel <= $opt_v)
     {
         if($opt_l)
@@ -441,7 +441,7 @@ sub Log($$)
         }
 
         print LOGFILE ($opt_l?"":"\r").timestamp().($opt_v >= 2 ? ($thread > 0 ? "(Thread $thread)" : "(Main Thread)")." - ":"").$message."\n";
-        
+
         close(LOGFILE);
     }
 }
