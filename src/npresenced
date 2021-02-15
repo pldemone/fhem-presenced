@@ -255,6 +255,44 @@ sub set_thread_command {
   return();
 }
 
+sub calc_check_timer {
+  my ($staticdev, $mac, $initoffset) = @_;
+  my $update = time() + $static{$mac};
+  my $ret = 0;
+
+  foreach my $mac (keys %static) {
+    next if !$$staticdev{$mac}[1];
+    next if ($update <= $$staticdev{$mac}[1] && $update > $$staticdev{$mac}[1]-$initoffset);
+    return $initoffset * (-1);
+  }
+
+  foreach my $mac (keys %static) {
+    next if !$$staticdev{$mac}[1];
+    next if ($update >= $$staticdev{$mac}[1] && $update < $$staticdev{$mac}[1]+$initoffset);
+    last if $initoffset;
+  }
+
+  return 0;
+}
+
+sub calc_next_update {
+  my ($staticdev, $mac) = @_;
+  my $update = 0;
+  my $offset;
+
+  # Find a queue timeslot
+  for (my $i=0; $i<=$static{$mac}*0.3; $i+=5) {
+    $offset = calc_check_timer($staticdev, $mac, $i);
+    if ($offset) {
+        $update = time() + $static{$mac} + $offset;
+        last;
+    }
+  }
+
+  $update = time() + $static{$mac} if !$update;
+  return $update;
+}
+
 sub bluetooth_info_thread {
   my ($device) = @_;
   my %staticdev;
@@ -265,12 +303,13 @@ sub bluetooth_info_thread {
     if ($thread_commands{bluetooth_info_thread} != THREAD_COMMAND_STOP) {
 
       foreach my $mac (keys %static) {
-        if (!defined $staticdev{$mac}) {
+        if (!defined $staticdev{$mac}[0]) {
           # Init call
           $staticdev{$mac}[0] = 10; # number of retries
-          $staticdev{$mac}[1] = 0;  # next update
-          $staticdev{$mac}[2] = ""; # device name
-          $staticdev{$mac}[3] = 0;  # force update
+          $staticdev{$mac}[1] = 0;  # next check
+          $staticdev{$mac}[2] = 0;  # previews check
+          $staticdev{$mac}[3] = ""; # device name
+          $staticdev{$mac}[4] = 0;  # force update
         }
 
          if ($staticdev{$mac}[1] < time()) {
@@ -281,25 +320,33 @@ sub bluetooth_info_thread {
             if ($staticdev{$mac}[0] >= STATIC_DOWN_DELAY) {
               # Init call or link up
               update_device($mac,  $devname, '', 0);
-              $staticdev{$mac}[3] = 1;
+              $staticdev{$mac}[4] = 1;
             }
 
             $staticdev{$mac}[0] = 0;
-            $staticdev{$mac}[2] = $devname;
-
-            # Check availability at least once in the set time period
-            $staticdev{$mac}[1] = time() + ($static{$mac}/3) if $static{$mac} < 60;
-            $staticdev{$mac}[1] = time() + ($static{$mac}/2) if $static{$mac} >= 60;
+            $staticdev{$mac}[3] = $devname;
+            $staticdev{$mac}[2] = time();
           } else {
             ($staticdev{$mac}[0])++;
-#            $staticdev{$mac}[1] = time() + ($static{$mac}/3) if $staticdev{$mac}[0];
-             $staticdev{$mac}[1] = time()+5;  # Check every 5sec if device is absent
           }
 
+          # Check availability at least once in the set time period
+          $staticdev{$mac}[1] = calc_next_update(\%staticdev, $mac);
+
           # Update the status
-          update_device($mac,  $staticdev{$mac}[2], '', $staticdev{$mac}[3])
+          update_device($mac,  $staticdev{$mac}[3], '', $staticdev{$mac}[4])
             if ($staticdev{$mac}[0] < STATIC_DOWN_DELAY);
-          $staticdev{$mac}[3] = 0;
+          $staticdev{$mac}[4] = 0;
+        }
+
+        # Check for unreached timer
+        foreach my $cmac (keys %static) {
+          next if !defined $staticdev{$cmac}[0];
+          if (($staticdev{$cmac}[0] < STATIC_DOWN_DELAY) &&
+            (time() - $staticdev{$cmac}[2]) >= $static{$cmac}-5) {
+            $staticdev{$cmac}[2] = time();
+            update_device($cmac,  $staticdev{$cmac}[3], '', 0);
+          }
         }
 
         set_thread_command('bluetooth_info_thread', THREAD_COMMAND_RUN)
@@ -433,12 +480,9 @@ sub is_present {
 
   return(
     defined($devices{$client->{'mac'}}) &&
-    time()-$devices{$client->{'mac'}}{timestamp} <= $client->{'interval'} &&
-    defined($devices{$client->{'mac'}}{prevtimestamp}) &&
-    time()-$devices{$client->{'mac'}}{prevtimestamp} <= $client->{'interval'}
+    time()-$devices{$client->{'mac'}}{timestamp} <= $client->{'interval'}
     );
 }
-
 
 openlog(ME, 'pid', LOG_USER);
 (my $device, my $daemonize, my $listen_address, my $listen_port, $log_level, $log_target, $debug) = parse_options();
