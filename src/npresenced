@@ -59,7 +59,6 @@ use constant STATIC_DOWN_DELAY                    => 1;
 use constant ME                                   => 'npresenced';
 use constant VERSION                              => '0.01';
 use constant PIDFILE                              => "/var/run/" . ME . ".pid";
-use constant KILL_SIGNAL                          => 2; #SIGINT
 
 use constant THREAD_COMMAND_RUN                   => 0;
 use constant THREAD_COMMAND_STOP                  => 1;
@@ -70,14 +69,13 @@ my %static :shared;
 my %force :shared;
 my @clients = ();
 
+my ($next_dump_time, $next_stats_time, $next_cleanup_time);
 my ($log_level, $log_target);
 my $debug;
 
 my %thread_commands :shared = (
   'bluetooth_info_thread' => THREAD_COMMAND_RUN,
 );
-
-my ($next_dump_time, $next_stats_time, $next_cleanup_time);
 
 sub syslogw {
   my ($priority, @args) = @_;
@@ -228,7 +226,6 @@ sub update_device {
   my ($mac, $name, $address_type, $force) = @_;
   $mac = lc($mac);
   $address_type = "" if !$address_type;
-
   {
     lock(%devices);
     unless (exists $devices{$mac}) {
@@ -270,14 +267,13 @@ sub bluetooth_info_thread {
       foreach my $mac (keys %static) {
         if (!defined $staticdev{$mac}) {
           # Init call
-          $staticdev{$mac}[0] = 10;  # number of retries
+          $staticdev{$mac}[0] = 10; # number of retries
           $staticdev{$mac}[1] = 0;  # next update
           $staticdev{$mac}[2] = ""; # device name
-          $staticdev{$mac}[3] = 0; # force update
+          $staticdev{$mac}[3] = 0;  # force update
         }
 
-#        if ($staticdev{$mac}[1] < time()) {
-         if (0 < time()) {
+         if ($staticdev{$mac}[1] < time()) {
           # Check for update
           $devname = qx(hcitool name $mac);
           if ($devname && $devname ne "") {
@@ -287,18 +283,24 @@ sub bluetooth_info_thread {
               update_device($mac,  $devname, '', 0);
               $staticdev{$mac}[3] = 1;
             }
+
             $staticdev{$mac}[0] = 0;
             $staticdev{$mac}[2] = $devname;
-            $staticdev{$mac}[1] = time() + ($static{$mac});
+
+            # Check availability at least once in the set time period
+            $staticdev{$mac}[1] = time() + ($static{$mac}/3) if $static{$mac} < 60;
+            $staticdev{$mac}[1] = time() + ($static{$mac}/2) if $static{$mac} >= 60;
           } else {
             ($staticdev{$mac}[0])++;
-            $staticdev{$mac}[1] = time() + ($static{$mac}/3) if $staticdev{$mac}[0];
+#            $staticdev{$mac}[1] = time() + ($static{$mac}/3) if $staticdev{$mac}[0];
+             $staticdev{$mac}[1] = time()+5;  # Check every 5sec if device is absent
           }
-        }
 
-        update_device($mac,  $staticdev{$mac}[2], '', $staticdev{$mac}[3])
-          if ($staticdev{$mac}[0] < STATIC_DOWN_DELAY);
-        $staticdev{$mac}[3] = 0;
+          # Update the status
+          update_device($mac,  $staticdev{$mac}[2], '', $staticdev{$mac}[3])
+            if ($staticdev{$mac}[0] < STATIC_DOWN_DELAY);
+          $staticdev{$mac}[3] = 0;
+        }
 
         set_thread_command('bluetooth_info_thread', THREAD_COMMAND_RUN)
           if ($thread_commands{bluetooth_info_thread} == THREAD_COMMAND_RESTART);
