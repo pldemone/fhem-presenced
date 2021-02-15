@@ -1,9 +1,6 @@
 #!/usr/bin/perl
 #
 ##############################################################################
-# $Id$
-##############################################################################
-#
 # npresenced
 # Copyright (C) 2021 Mirko Lindner, demon (at) pro-linux.de (dot) de
 #
@@ -433,8 +430,7 @@ syslogw(LOG_NOTICE, "Version %s started (device: %s, listen addr: %s, listen por
 sanity_check();
 daemonize('root', 'root', PIDFILE) if $daemonize;
 
-my ($bluetooth_info_thread);
-$bluetooth_info_thread = threads->new(\&bluetooth_info_thread, $device)->detach();
+my $bluetooth_info_thread = threads->new(\&bluetooth_info_thread, $device)->detach();
 
 my $current_client;
 local $| = 1;
@@ -445,6 +441,7 @@ my $server_socket = IO::Socket::INET->new(
   Listen => 5,
   ReuseAddr => 1,
 );
+
 $server_socket or error_exit(2, "ERROR: Unable to create TCP server: $!, Exiting.");
 my $select = IO::Select->new($server_socket) or error_exit(1, "ERROR: Unable to select: $!, Exiting.");
 
@@ -492,7 +489,7 @@ for(;;) {
   }
 
   if (scalar(keys(%force)) > 0) {
-    # Check for force requests
+    # Check for force updates
     foreach my $mac (keys %force) {
       foreach my $client (grep { $_->{'mac'} eq $mac } @clients) {
         $client->{'next_check'} = 0; #now
