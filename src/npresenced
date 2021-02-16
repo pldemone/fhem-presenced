@@ -54,7 +54,7 @@ use constant CLEANUP_MAX_AGE                      => 30 * 60;
 use constant STATS_INTERVAL_INFO                  =>  5 * 60;
 use constant STATS_INTERVAL_DEBUG                 =>  1 * 60;
 use constant DUMP_INTERVAL                        => 10;
-use constant STATIC_DOWN_DELAY                    => 1;
+use constant STATIC_DOWN_DELAY                    => 2;
 
 use constant ME                                   => 'npresenced';
 use constant VERSION                              => '0.01';
@@ -223,9 +223,10 @@ sub sanity_check {
 }
 
 sub update_device {
-  my ($mac, $name, $address_type, $force) = @_;
+  my ($mac, $name, $address_type, $force, $time) = @_;
   $mac = lc($mac);
   $address_type = "" if !$address_type;
+  $time = time() if !$time || $time == 0;
   {
     lock(%devices);
     unless (exists $devices{$mac}) {
@@ -240,7 +241,7 @@ sub update_device {
 
     $devices{$mac}{'prevtimestamp'} = $devices{$mac}{'timestamp'};
     $devices{$mac}{'address_type'} = lc($address_type);
-    $devices{$mac}{'timestamp'} = time();
+    $devices{$mac}{'timestamp'} = $time;
 
     lock(%force);
     $force{$mac} = 1 if $force;
@@ -255,24 +256,37 @@ sub set_thread_command {
   return();
 }
 
-sub calc_check_timer {
-  my ($staticdev, $mac, $initoffset) = @_;
-  my $update = time() + $static{$mac};
+sub upvote_timer {
+  my ($staticdev, $inmac) = @_;
+  my $update = time() + $static{$inmac};
+  my $next = time()+5;
+
+  foreach my $mac (keys %static) {
+    next if $mac eq $inmac;
+    next if !$$staticdev{$mac}[1];
+
+    if (($next > $$staticdev{$mac}[1]-5) && ($next < $$staticdev{$mac}[1]+5)) {
+      $next = $$staticdev{$mac}[1]+5;
+      next;
+    }
+  }
+
+  return ($next > $update ? $update : $next);
+}
+
+sub downvote_timer {
+  my ($staticdev, $inmac, $initoffset) = @_;
+  my $update = time() + $static{$inmac};
   my $ret = 0;
 
   foreach my $mac (keys %static) {
+    next if $mac eq $inmac;
     next if !$$staticdev{$mac}[1];
-    next if ($update <= $$staticdev{$mac}[1] && $update > $$staticdev{$mac}[1]-$initoffset);
-    return $initoffset * (-1);
+    $ret = 1 if $$staticdev{$mac}[1] < $update+$initoffset && $$staticdev{$mac}[1] >= $update;
+    last if $ret;
   }
 
-  foreach my $mac (keys %static) {
-    next if !$$staticdev{$mac}[1];
-    next if ($update >= $$staticdev{$mac}[1] && $update < $$staticdev{$mac}[1]+$initoffset);
-    last if $initoffset;
-  }
-
-  return 0;
+  return ($ret ? $initoffset : 0);
 }
 
 sub calc_next_update {
@@ -280,17 +294,23 @@ sub calc_next_update {
   my $update = 0;
   my $offset;
 
+
+  if ($$staticdev{$mac}[0] >= STATIC_DOWN_DELAY) {
+    $offset = upvote_timer($staticdev, $mac);
+    return $offset if $offset;
+  }
+
   # Find a queue timeslot
   for (my $i=0; $i<=$static{$mac}*0.3; $i+=5) {
-    $offset = calc_check_timer($staticdev, $mac, $i);
+    $offset = downvote_timer($staticdev, $mac, $i);
+
     if ($offset) {
-        $update = time() + $static{$mac} + $offset;
-        last;
+      $update = time() + $static{$mac} + $offset;
+      last;
     }
   }
 
-  $update = time() + $static{$mac} if !$update;
-  return $update;
+  return (!$update ? time() + $static{$mac} : $update);
 }
 
 sub bluetooth_info_thread {
@@ -305,37 +325,51 @@ sub bluetooth_info_thread {
       foreach my $mac (keys %static) {
         if (!defined $staticdev{$mac}[0]) {
           # Init call
-          $staticdev{$mac}[0] = 10; # number of retries
+          $staticdev{$mac}[0] = STATIC_DOWN_DELAY + 1; # number of retries
           $staticdev{$mac}[1] = 0;  # next check
-          $staticdev{$mac}[2] = 0;  # previews check
+          $staticdev{$mac}[2] = 0;  # prev. check
           $staticdev{$mac}[3] = ""; # device name
           $staticdev{$mac}[4] = 0;  # force update
         }
 
          if ($staticdev{$mac}[1] < time()) {
-          # Check for update
+          # Check for an update
+          $staticdev{$mac}[1] = time() if !$staticdev{$mac}[1]; # Reset
           $devname = qx(hcitool name $mac);
           if ($devname && $devname ne "") {
             chomp $devname;
+
             if ($staticdev{$mac}[0] >= STATIC_DOWN_DELAY) {
-              # Init call or link up
+              # Init call or link up... Force an network update
+              syslogw(LOG_DEBUG, "Up event for %s", $mac);
               update_device($mac,  $devname, '', 0);
               $staticdev{$mac}[4] = 1;
             }
 
             $staticdev{$mac}[0] = 0;
-            $staticdev{$mac}[3] = $devname;
             $staticdev{$mac}[2] = time();
+            $staticdev{$mac}[3] = $devname;
           } else {
             ($staticdev{$mac}[0])++;
+
+             # Down... Force an update
+            if ($staticdev{$mac}[0] == STATIC_DOWN_DELAY) {
+              syslogw(LOG_DEBUG, "Down event for %s", $mac);
+              $staticdev{$mac}[2] = 1;
+              $staticdev{$mac}[4] = 1;
+            } elsif ($staticdev{$mac}[0] < STATIC_DOWN_DELAY) {
+              $staticdev{$mac}[1] = 0; # Recheck now
+            }
           }
 
+          next if !$static{$mac};
+
           # Check availability at least once in the set time period
-          $staticdev{$mac}[1] = calc_next_update(\%staticdev, $mac);
+          $staticdev{$mac}[1] = calc_next_update(\%staticdev, $mac) if $staticdev{$mac}[1];
 
           # Update the status
-          update_device($mac,  $staticdev{$mac}[3], '', $staticdev{$mac}[4])
-            if ($staticdev{$mac}[0] < STATIC_DOWN_DELAY);
+          update_device($mac,  $staticdev{$mac}[3], '', $staticdev{$mac}[4], $staticdev{$mac}[2])
+            if ($staticdev{$mac}[4] || $staticdev{$mac}[0] < STATIC_DOWN_DELAY);
           $staticdev{$mac}[4] = 0;
         }
 
