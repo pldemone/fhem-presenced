@@ -486,8 +486,8 @@ sub gather_stats {
 
 sub stats_task {
   my ($min_age, $max_age, $devices) = gather_stats();
-  syslogw(LOG_INFO, "Active clients: %i, known devices: %i (min/max age: %s/%s)",
-    scalar(@clients), $devices, $min_age // '%', $max_age // '%');
+  syslogw(LOG_INFO, "Active clients: %i, known devices: %i",
+    scalar(@clients), $devices);
   return();
 }
 

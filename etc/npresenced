@@ -3,16 +3,16 @@
 #
 
 #Bluetooth device to use for scanning.
-#BLUETOOTH_DEVICE="hci0"
+BLUETOOTH_DEVICE="hci0"
 
 #Address to listen for incoming connections. For local connections use 127.0.0.1.
-#LISTEN_ADDRESS="0.0.0.0"
+LISTEN_ADDRESS="0.0.0.0"
 
 #Port to listen for incoming connections.
-#LISTEN_PORT="5333"
+LISTEN_PORT="5333"
 
 #Syslog level. LOG_EMERG disables logging.
-#SYSLOG_LEVEL="LOG_WARNING"
+SYSLOG_LEVEL="LOG_WARNING"
 
 #Additional command line options
-#MISC_OPTIONS=""
+MISC_OPTIONS="--fast"
