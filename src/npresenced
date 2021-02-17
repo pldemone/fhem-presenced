@@ -40,7 +40,7 @@ use IO::Socket::INET;
 
 use Getopt::Long;
 use Sys::Syslog qw(:standard :macros);
-use Time::HiRes qw(usleep);
+use Time::HiRes qw(usleep gettimeofday);
 use Net::Server::Daemonize qw(daemonize);
 
 # use Data::Dumper;
@@ -67,11 +67,12 @@ use constant THREAD_COMMAND_RESTART               => 2;
 my %devices :shared;
 my %static :shared;
 my %force :shared;
+my $hcitime :shared = 0;
 my @clients = ();
 
 my ($next_dump_time, $next_stats_time, $next_cleanup_time);
-my ($log_level, $log_target);
-my $debug;
+my ($debug, $log_level, $log_target);
+my ($fast_presence);
 
 my %thread_commands :shared = (
   'bluetooth_info_thread' => THREAD_COMMAND_RUN,
@@ -122,6 +123,7 @@ sub usage_exit {
   print("  -b, --bluetoothdevice HCI device used for scanning\n");
   print("  -d, --daemon          Run as a daemon in background\n");
   print("      --debug           Enable debug mode\n");
+  print("      --fast            Enable fast detection of presence event\n");
   print("  -h  --help            Display this help\n");
   print("  -l, --loglevel        Log level (Default: LOG_INFO)\n");
   print("                        LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG\n");
@@ -130,6 +132,7 @@ sub usage_exit {
   print("  -V, --version         Display version\n");
   print("");
   print("Examples:\n");
+  printf("  %s -l LOG_INFO -t stdout\n", ME);
   printf("  %s -l LOG_INFO -t stdout\n", ME);
   printf("  %s -b hci0 -a 127.0.0.1 -p 5333 --daemon\n", ME);
   closelog();
@@ -166,6 +169,7 @@ sub parse_options {
   my $daemonize                   = 0;
   my $listen_address              = "0.0.0.0";
   my $listen_port                 = "5333";
+  my $fast_presence               = 0;
   my $log_target                  = "syslog";
   my $log_level                   = "LOG_INFO";
   my $debug                       = 0;
@@ -177,6 +181,7 @@ sub parse_options {
     'daemon|daemonize|d!'         => \$daemonize,
     'listenaddress|address|a=s'   => \$listen_address,
     'listenport|port|p=i'         => \$listen_port,
+    'fastpresence|fast'           => \$fast_presence,
     'loglevel|l=s'                => \$log_level,
     'logtarget|t=s'               => \$log_target,
     'debug!'                      => \$debug,
@@ -192,7 +197,16 @@ sub parse_options {
   $log_level = parse_log_level($log_level);
   $daemonize = 0 if ($debug);
 
-  return ($device, $daemonize, $listen_address, $listen_port, $log_level, $log_target, $debug);
+  return ($device, $daemonize, $listen_address, $listen_port, $fast_presence, $log_level, $log_target, $debug);
+}
+
+sub calibrate {
+  my $start_time = Time::HiRes::gettimeofday();
+  `hcitool name 11:22:33:44:55:66 &> /dev/null`;  # Dummy call for unknown device
+  lock($hcitime);
+  $hcitime = int(Time::HiRes::gettimeofday() - $start_time);
+
+  syslogw(LOG_INFO, "Callibrate hcitool command. Exec time: %ssec.", $hcitime);
 }
 
 sub sanity_check {
@@ -259,14 +273,14 @@ sub set_thread_command {
 sub upvote_timer {
   my ($staticdev, $inmac) = @_;
   my $update = time() + $static{$inmac};
-  my $next = time()+5;
+  my $next = time()+$hcitime;
 
   foreach my $mac (keys %static) {
     next if $mac eq $inmac;
     next if !$$staticdev{$mac}[1];
 
-    if (($next > $$staticdev{$mac}[1]-5) && ($next < $$staticdev{$mac}[1]+5)) {
-      $next = $$staticdev{$mac}[1]+5;
+    if (($next > $$staticdev{$mac}[1]-$hcitime) && ($next < $$staticdev{$mac}[1]+$hcitime)) {
+      $next = $$staticdev{$mac}[1]+$hcitime;
       next;
     }
   }
@@ -294,6 +308,8 @@ sub calc_next_update {
   my $update = 0;
   my $offset;
 
+  # Fast presence disabled
+  return time() + $static{$mac} if !$fast_presence;
 
   if ($$staticdev{$mac}[0] >= STATIC_DOWN_DELAY) {
     $offset = upvote_timer($staticdev, $mac);
@@ -301,7 +317,7 @@ sub calc_next_update {
   }
 
   # Find a queue timeslot
-  for (my $i=0; $i<=$static{$mac}*0.3; $i+=5) {
+  for (my $i=0; $i<=$static{$mac}*0.3; $i+=$hcitime) {
     $offset = downvote_timer($staticdev, $mac, $i);
 
     if ($offset) {
@@ -332,13 +348,13 @@ sub bluetooth_info_thread {
           $staticdev{$mac}[4] = 0;  # force update
         }
 
-         if ($staticdev{$mac}[1] < time()) {
+        if ($staticdev{$mac}[1] < time()) {
+          syslogw(LOG_DEBUG, "Perform device check for %s", $mac);
           # Check for an update
           $staticdev{$mac}[1] = time() if !$staticdev{$mac}[1]; # Reset
           $devname = qx(hcitool name $mac);
           if ($devname && $devname ne "") {
             chomp $devname;
-
             if ($staticdev{$mac}[0] >= STATIC_DOWN_DELAY) {
               # Init call or link up... Force an network update
               syslogw(LOG_DEBUG, "Up event for %s", $mac);
@@ -439,9 +455,13 @@ sub handle_command {
 
       return(1);
   } elsif ($buf =~ m/^\s*stop\s*$/) {
-    # Stop does not make sense when scanning permanently
-    syslogw(LOG_DEBUG, "Received stop command from client %s:%i. Pretending to care and ignoring...",
+    # Stop...
+    syslogw(LOG_DEBUG, "Received stop command from client %s:%i. Stop detection...",
             $current_client->peerhost(), $current_client->peerport());
+
+    foreach my $client (grep { $_->{'handle'} == $current_client } @clients) {
+      remove_device($client);
+    }
 
     print $current_client "no command running\n" # ToDo: Does the FHEM module even care?
   } else {
@@ -509,6 +529,16 @@ sub cleanup_task {
   return();
 }
 
+sub remove_device {
+  my $client = $_[0];
+
+  # Remove static
+  delete($static{$client->{'mac'}});
+  my $entries = keys %static;
+  syslogw(LOG_DEBUG, "MAC address %s removed from static. Static check entries: %i.",
+          $client->{'mac'} , $entries);
+}
+
 sub is_present {
   my ($client) = @_;
 
@@ -518,8 +548,9 @@ sub is_present {
     );
 }
 
+
 openlog(ME, 'pid', LOG_USER);
-(my $device, my $daemonize, my $listen_address, my $listen_port, $log_level, $log_target, $debug) = parse_options();
+(my $device, my $daemonize, my $listen_address, my $listen_port, $fast_presence, $log_level, $log_target, $debug) = parse_options();
 
 local $SIG{INT} = local $SIG{TERM} = local $SIG{HUP} = sub {
   syslogw(LOG_NOTICE, "Caught signal, cleaning up and exiting...");
@@ -532,6 +563,7 @@ syslogw(LOG_NOTICE, "Version %s started (device: %s, listen addr: %s, listen por
   VERSION, $device, $listen_address, $listen_port, $daemonize, $log_level, $debug);
 
 sanity_check();
+calibrate() if $fast_presence;
 daemonize('root', 'root', PIDFILE) if $daemonize;
 
 # Init the main info thread
@@ -580,13 +612,12 @@ for(;;) {
       }
 
       if (!$buf || $disconnect) {
-       $select->remove($current_client);
-       if (my ($client) = grep { $current_client == $_->{'handle'} } @clients) {
-          delete($static{$client->{'mac'}});
-          my $entries = keys %static;
-          syslogw(LOG_DEBUG, "MAC address %s removed from static. Static check entries: %i.",
-              $client->{'mac'} , $entries);
+        $select->remove($current_client);
+
+        if (my ($client) = grep { $current_client == $_->{'handle'} } @clients) {
+          remove_device($client);
         }
+
         @clients = grep {$_->{'handle'} != $current_client} @clients;
 
         syslogw(LOG_INFO, "Client %s:%s disconnected. Connected clients: %i.",
