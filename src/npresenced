@@ -123,7 +123,7 @@ sub usage_exit {
   print("  -b, --bluetoothdevice HCI device used for scanning\n");
   print("  -d, --daemon          Run as a daemon in background\n");
   print("      --debug           Enable debug mode\n");
-  print("      --fast            Enable fast detection of presence event\n");
+  print("      --fast            Enable fast presence event detection\n");
   print("  -h  --help            Display this help\n");
   print("  -l, --loglevel        Log level (Default: LOG_INFO)\n");
   print("                        LOG_CRIT, LOG_ERR, LOG_WARNING, LOG_NOTICE, LOG_INFO, LOG_DEBUG\n");
@@ -132,7 +132,7 @@ sub usage_exit {
   print("  -V, --version         Display version\n");
   print("");
   print("Examples:\n");
-  printf("  %s -l LOG_INFO -t stdout\n", ME);
+  printf("  %s --fast\n", ME);
   printf("  %s -l LOG_INFO -t stdout\n", ME);
   printf("  %s -b hci0 -a 127.0.0.1 -p 5333 --daemon\n", ME);
   closelog();
