@@ -30,7 +30,7 @@ make install
 ## Usage
 Start the server on your FHEM instance or on a remote system
 ```sh
-/usr/bin/npresenced -l LOG_INFO -t stdout
+/usr/bin/npresenced -l LOG_INFO -t stdout --fast
 ```
 
 Define a monitored system under FHEM
