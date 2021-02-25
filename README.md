@@ -33,7 +33,7 @@ Start the server on your FHEM instance or on a remote system
 /usr/bin/npresenced -l LOG_INFO -t stdout --fast
 ```
 
-Define a monitored system under FHEM
+Define a monitored system in FHEM
 ```
 define MyIphone PRESENCE lan-bluetooth 11:22:33:44:55:66 192.168.0.1:5333 60
 ```
