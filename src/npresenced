@@ -564,7 +564,7 @@ syslogw(LOG_NOTICE, "Version %s started (device: %s, listen addr: %s, listen por
 
 sanity_check();
 calibrate() if $fast_presence;
-daemonize('root', 'root', PIDFILE) if $daemonize;
+daemonize('nobody', 'nogroup', PIDFILE) if $daemonize;
 
 # Init the main info thread
 my $bluetooth_info_thread = threads->new(\&bluetooth_info_thread, $device)->detach();
