@@ -617,7 +617,7 @@ syslogw(LOG_NOTICE, "Version %s started (device: %s, listen addr: %s, listen por
   $VERSION, $device, $listen_address, $listen_port, $daemonize, $legacy_mode, $rssi_threshold, $battery_interval_h, $log_level, $debug);
 
 sanity_check($legacy_mode);
-daemonize('root', 'root', $PIDFILE) if $daemonize;
+daemonize('nobody', 'nogroup', $PIDFILE) if $daemonize;
 
 my ($bluetooth_dump_thread, $bluetooth_scan_thread);
 $bluetooth_scan_thread = threads->new(\&bluetooth_scan_thread, $device, $legacy_mode)->detach();

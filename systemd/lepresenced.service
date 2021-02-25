@@ -4,6 +4,8 @@ After=bluetooth.target sys-subsystem-bluetooth-devices-hci0.device
 
 [Service]
 ExecStart=/usr/bin/lepresenced --device $BLUETOOTH_DEVICE --listenaddress $LISTEN_ADDRESS --listenport $LISTEN_PORT --loglevel $SYSLOG_LEVEL $MISC_OPTIONS
+User=nobody
+Group=nogroup
 Environment="BLUETOOTH_DEVICE=hci0"
 Environment="LISTEN_ADDRESS=0.0.0.0"
 Environment="LISTEN_PORT=5333"
