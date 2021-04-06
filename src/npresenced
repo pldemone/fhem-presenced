@@ -39,10 +39,9 @@ use IO::Select;
 use IO::Socket::INET;
 
 use Getopt::Long;
-use Sys::Syslog qw(:standard :macros);
 use Time::HiRes qw(usleep gettimeofday);
 use Net::Server::Daemonize qw(daemonize);
-
+use Sys::Syslog qw(:standard :macros);
 # use Data::Dumper;
 
 use constant RETRY_SLEEP                          => 1;
@@ -78,6 +77,16 @@ my %thread_commands :shared = (
   'bluetooth_info_thread' => THREAD_COMMAND_RUN,
 );
 
+use constant LOG_EMERG      => 0; # system is unusable
+use constant LOG_ALERT      => 1; # action must be taken immediately
+use constant LOG_CRIT       => 2; # critical conditions
+use constant LOG_ERR        => 3; # error conditions
+use constant LOG_WARNING    => 4; # warning conditions
+use constant LOG_NOTICE     => 5; # normal but significant condition
+use constant LOG_INFO       => 6; # informational
+use constant LOG_DEBUG      => 7; # debug-level messages
+
+
 sub syslogw {
   my ($priority, @args) = @_;
   return if (scalar(@args) < 1);
@@ -111,7 +120,7 @@ sub error_exit {
 
 sub usage_version {
   printf("%s %s\n", ME, VERSION);
-  closelog();
+  if ($log_target eq 'syslog') { closelog() }
   exit(1);
 }
 
@@ -135,7 +144,6 @@ sub usage_exit {
   printf("  %s --fast\n", ME);
   printf("  %s -l LOG_INFO -t stdout\n", ME);
   printf("  %s -b hci0 -a 127.0.0.1 -p 5333 --daemon\n", ME);
-  closelog();
   exit(1);
 }
 
@@ -549,9 +557,9 @@ sub is_present {
 }
 
 
-openlog(ME, 'pid', LOG_USER);
 (my $device, my $daemonize, my $listen_address, my $listen_port, $fast_presence, $log_level, $log_target, $debug) = parse_options();
 
+if ($log_target eq 'syslog') { openlog(ME, 'pid', LOG_INFO)}
 local $SIG{INT} = local $SIG{TERM} = local $SIG{HUP} = sub {
   syslogw(LOG_NOTICE, "Caught signal, cleaning up and exiting...");
   unlink(PIDFILE) if (-e PIDFILE);
